@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 )
@@ -15,14 +16,21 @@ func (h *statusHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	b, e := json.Marshal(h.GetStat()) //e?
+
+	fmt.Println("Map now is", h.GetMap())
+	//for k,v := range h.GetMap(){
+	//	fmt.Println("entry",k,v)
+	//}
+	//b, e := json.Marshal(h.GetStat())
+	b, e := json.Marshal(h.GetMap())
 	if e != nil {
 		log.Println(e)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-
-	w.Write(b)
+	c, e := json.Marshal(map[string][]byte{"k1": {'v', '1'}, "k2": {'v', '2'}})
+	d := append(c, b...)
+	w.Write(d)
 }
 
 func (s *Server) statusHandler() http.Handler {
