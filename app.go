@@ -11,13 +11,15 @@ import (
 func main() {
 	fmt.Println("Hello Go")
 
-	ttl := flag.Int("ttl", 5, "Time to live")
+	ttl := flag.Int("ttl", 60, "Time to live")
+	capacity := flag.Int("capacity", 3, "LRU capacity")
 	flag.Parse()
 
 	tmp := "inmemory"
 	typ := &tmp
 	log.Println("Now cache ttl is :", *ttl)
-	c := cache.New(*typ, *ttl)
+	log.Println("Now cache LRU capacity is :", *capacity)
+	c := cache.New(*typ, *ttl, *capacity)
 	//c := cache.New("inmemory")
 	//go tcp.New(c).Listen()
 	http.New(c).Listen()
