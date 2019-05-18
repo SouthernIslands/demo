@@ -9,7 +9,7 @@ import (
 )
 
 type entry struct {
-	element list.Element
+	element *list.Element
 	key     string
 	value   []byte
 	expire  time.Time
@@ -31,20 +31,22 @@ func (c *inMemoryCache) Set(k string, v []byte) error {
 	defer c.mutex.Unlock()
 
 	tmp, exist := c.table[k]
-	//fmt.Printf("%s is exist %s",tmp,exist)
 	//exist?
 	if exist {
 		c.removeEntry(tmp)
+		fmt.Printf("LRU len is %d exist \n", c.lrulist.Len())
 		//c.del(k, tmp.value)
 	} else {
 		if c.lrulist.Len() == c.capacity {
 			e := c.leastUsedEntry()
 			c.removeEntry(e)
 		}
-		tmp = &entry{}
-		tmp.element = list.Element{}
+		fmt.Printf("LRU len is %d \n", c.lrulist.Len())
 		//tmp.index
 	}
+	tmp = &entry{}
+	tmp.element = c.lrulist.PushFront(tmp)
+	tmp.element.Value = tmp
 
 	tmp.key = k
 	tmp.value = v
@@ -66,10 +68,6 @@ func (c *inMemoryCache) Get(key string) ([]byte, error) {
 	//if tmp.expire.Before(time.Now())
 	c.touchEntry(c.table[key])
 	return c.table[key].value, nil
-	//tmp := c.c[k].created
-	//c.c[k].created = tmp //cannot modify value of struct in map
-	//fmt.Println(c.c[k].created)
-	//return c.c[k].v, nil
 }
 
 func (c *inMemoryCache) Del(key string) error {
@@ -119,7 +117,7 @@ func (c *inMemoryCache) removeEntry(e *entry) {
 	if e.index != -1 {
 		heap.Remove(&c.pq, e.index)
 	}
-	c.lrulist.Remove(&e.element)
+	c.lrulist.Remove(e.element)
 	delete(c.table, e.key)
 	fmt.Println("delete key :", e.key)
 	e.key = "" //need?
@@ -130,12 +128,13 @@ func (c *inMemoryCache) insertEntry(e *entry) {
 	if !e.expire.IsZero() {
 		heap.Push(&c.pq, e)
 	}
-	c.lrulist.PushFront(&e.element)
+	//c.lrulist.PushFront(e.element)
+	c.lrulist.MoveToFront(e.element)
 	c.table[e.key] = e
 }
 
 func (c *inMemoryCache) touchEntry(e *entry) {
-	c.lrulist.MoveToFront(&e.element)
+	c.lrulist.MoveToFront(e.element)
 }
 
 func (c *inMemoryCache) leastUsedEntry() *entry {
@@ -162,16 +161,6 @@ func newInMemoryCache(capacity, ttl int) *inMemoryCache {
 	return c
 }
 
-//func (c *inMemoryCache) expireHelper(){
-//	c.mutex.Lock()
-//	defer c.mutex.Unlock()
-//	e := c.expiredEntry(time.Now())
-//	if e == nil {
-//		return
-//	}
-//	c.removeEntry(e)
-//}
-
 func (c *inMemoryCache) expire() {
 	//c.mutex.Lock()
 	//defer c.mutex.Unlock()
@@ -189,22 +178,9 @@ func (c *inMemoryCache) expire() {
 			c.removeEntry(e)
 			i += 1
 		}
-		fmt.Printf("%d entries expired", i)
+		if i > 0 {
+			fmt.Printf("%d entries expired\n", i)
+		}
 	}
-	//for {
-	//	time.Sleep(c.ttl)
-	//	c.mutex.RLock()
-	//	//defer c.mutex.RUnlock()
-	//	for{
-	//
-	//		c.mutex.RUnlock()
-	//		if v.created.Add(c.ttl).Before(time.Now()) {
-	//			fmt.Println("delete key :", k)
-	//			c.Del(k)
-	//		}
-	//		c.mutex.RLock()
-	//	}
-	//
-	//	c.mutex.RUnlock()
-	//}
+
 }
