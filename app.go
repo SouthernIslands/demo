@@ -11,8 +11,8 @@ import (
 func main() {
 	fmt.Println("Hello Go")
 
-	ttl := flag.Int("ttl", 60, "Time to live")
-	capacity := flag.Int("capacity", 3, "LRU capacity")
+	ttl := flag.Int("ttl", 30, "Time to live (sec)")
+	capacity := flag.Int("capacity", 60, "LRU capacity")
 	flag.Parse()
 
 	tmp := "inmemory"

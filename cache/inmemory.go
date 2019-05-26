@@ -4,6 +4,7 @@ import (
 	"container/heap"
 	"container/list"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 )
@@ -41,7 +42,6 @@ func (c *inMemoryCache) Set(k string, v []byte) error {
 			e := c.leastUsedEntry()
 			c.removeEntry(e)
 		}
-		fmt.Printf("LRU len is %d \n", c.lrulist.Len())
 		//tmp.index
 	}
 	tmp = &entry{}
@@ -53,6 +53,7 @@ func (c *inMemoryCache) Set(k string, v []byte) error {
 	tmp.expire = time.Now().Add(c.ttl)
 	c.insertEntry(tmp)
 	//c.add(k, v)
+	fmt.Printf("LRU len is %d \n", c.lrulist.Len())
 	return nil
 }
 
@@ -62,7 +63,10 @@ func (c *inMemoryCache) Get(key string) ([]byte, error) {
 
 	tmp := c.table[key]
 	if tmp == nil {
-		fmt.Printf("key %s not found", key)
+		//log.Printf("key %s not found\n", key)
+		//lookup and add to map and list
+		log.Println(time.Now(), key, "retrieved from datastore")
+		return nil, nil
 	}
 
 	//if tmp.expire.Before(time.Now())
@@ -171,11 +175,12 @@ func (c *inMemoryCache) expire() {
 		for {
 			c.mutex.Lock()
 			e := c.expiredEntry(time.Now())
-			c.mutex.Unlock()
 			if e == nil {
+				c.mutex.Unlock()
 				break
 			}
 			c.removeEntry(e)
+			c.mutex.Unlock()
 			i += 1
 		}
 		if i > 0 {
