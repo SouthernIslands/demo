@@ -26,31 +26,37 @@ func (h *cacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	projectid := strings.Split(paras, ":")[0]
 	method := strings.Split(paras, ":")[1]
 	token := r.URL.RawQuery[strings.LastIndex(r.URL.RawQuery, "=")+1:]
+	url := baseURL + paras + "?" + r.URL.RawQuery
 	//token := r.Header.Get("Authorization")[0]
 	log.Println(method)
 	log.Println(token)
 
 	if len(projectid) == 0 || len(method) == 0 || len(token) == 0 {
 		w.WriteHeader(http.StatusBadRequest)
-		//???
-		//w.Write([]byte("Missing argument."))
+		w.Write([]byte("Missing argument."))
 		return
 	}
+
+	bodyBytes, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer r.Body.Close()
 
 	m := r.Method
 	if m == http.MethodPost {
 		var req map[string]interface{}
-		json.NewDecoder(r.Body).Decode(&req)
-		log.Println(req)
-
-		tmpk := req["keys"].(map[string]interface{})
-		tmpp := tmpk["path"].(map[string]interface{})
-		kind := tmpp["kind"].(string)
-		id := fmt.Sprintln(tmpp["id"])
+		json.Unmarshal(bodyBytes, &req)
+		log.Println("Request :", req)
 
 		if len(req) != 0 {
-			key := projectid + kind + id
 			if method == "lookup" {
+				tmpk := req["keys"].(map[string]interface{})
+				tmpp := tmpk["path"].(map[string]interface{})
+				kind := tmpp["kind"].(string)
+				id := fmt.Sprintln(tmpp["id"])
+				key := projectid + kind + id
+
 				b, e := h.Get(key)
 				if e != nil {
 					log.Println(e)
@@ -60,25 +66,46 @@ func (h *cacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				if b == nil {
 					//cache miss
-					//add to map and list
-					data := h.DoFetch(projectid, key, token, req)
+					data, code := h.DoFetch(projectid, key, token, req)
 					//res := http.ResponseWriter(resp)
 					//past the response to client
 					//outdated？
 
 					//map -> json -> encode json to w
-					json.NewEncoder(w).Encode(data)
+					//json.NewEncoder(w).Encode(data)
+					//byte->byte
+					w.Write(data)
+					if code != http.StatusOK {
+						w.WriteHeader(code)
+					}
 				} else {
 					w.Write(b)
 				}
 			} else if method == "commit" {
-				//commit
+				mutations := req["mutations"].([]interface{})
+				mutation := mutations[0].(map[string]interface{})
+				if mutation["upsert"] == nil || len(mutation) > 1 {
+					h.DoUpdate(url, bodyBytes)
+					data, code := h.DoUpdate(url, bodyBytes)
+					w.Write(data)
+					w.WriteHeader(code)
+					return
+				}
 
-				//set to cache
-				h.Set(key, []byte("map"))
+				data, code := h.DoUpdate(url, bodyBytes)
+				w.Write(data)
+				if code != http.StatusOK {
+					w.WriteHeader(code)
+				} else {
+					//set to cache
+					key, found := h.ConvertTofound(req, projectid, data)
+					h.Set(key, found)
+				}
 			} else {
-				//filter
-				//perform as a http agent
+				h.DoUpdate(url, bodyBytes)
+				data, code := h.DoUpdate(url, bodyBytes)
+				w.Write(data)
+				w.WriteHeader(code)
 			}
 		} else {
 			w.WriteHeader(http.StatusBadRequest)
@@ -86,18 +113,11 @@ func (h *cacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	//if m == http.MethodDelete {
-	//	e := h.Del(key)
-	//	if e != nil {
-	//		log.Println(e)
-	//		w.WriteHeader(http.StatusInternalServerError)
-	//	}
-	//	return
-	//}
+
 	w.WriteHeader(http.StatusMethodNotAllowed)
 }
 
-func (h *cacheHandler) DoFetch(projectid, key, token string, message map[string]interface{}) map[string]interface{} {
+func (h *cacheHandler) DoFetch(projectid, key, token string, message map[string]interface{}) ([]byte, int) {
 	bytesRepresentation, err := json.Marshal(message)
 	if err != nil {
 		log.Fatalln(err)
@@ -136,54 +156,77 @@ func (h *cacheHandler) DoFetch(projectid, key, token string, message map[string]
 	} else {
 		log.Println("WARNING: ", resp.StatusCode, resp.Body)
 	}
-	return result
+
+	return bodyBytes, resp.StatusCode
 }
 
-/*
-func (h *cacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	key := strings.Split(r.URL.EscapedPath(), "/")[2]
-	if len(key) == 0 {
-		w.WriteHeader(http.StatusBadRequest)
-		return
+func (h *cacheHandler) DoUpdate(url string, body []byte) ([]byte, int) {
+	resp, err := http.Post(url,
+		"application/json", bytes.NewBuffer(body))
+	if err != nil {
+		log.Fatalln(err)
 	}
 
-	m := r.Method
-	if m == http.MethodPut {
-		b, _ := ioutil.ReadAll(r.Body)
-		if len(b) != 0 {
-			e := h.Set(key, b)
-			if e != nil {
-				log.Println(e)
-				w.WriteHeader(http.StatusInternalServerError)
-			}
-		}
-		return
+	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Fatalln(err)
 	}
-	if m == http.MethodGet {
-		b, e := h.Get(key)
-		if e != nil {
-			log.Println(e)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		if len(b) == 0 {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		w.Write(b)
-		return
-	}
-	if m == http.MethodDelete {
-		e := h.Del(key)
-		if e != nil {
-			log.Println(e)
-			w.WriteHeader(http.StatusInternalServerError)
-		}
-		return
-	}
-	w.WriteHeader(http.StatusMethodNotAllowed)
+	defer resp.Body.Close()
+
+	return bodyBytes, resp.StatusCode
 }
-*/
+
+func (h *cacheHandler) ConvertTofound(req map[string]interface{}, projectid string, resp []byte) (string, []byte) {
+	mutations := req["mutations"].([]interface{})
+	mutation := mutations[0].(map[string]interface{})
+
+	upsert := mutation["upsert"].(map[string]interface{})
+	properties := upsert["properties"].(map[string]interface{})
+	key := upsert["key"].(map[string]interface{})
+	key["partitionId"] = map[string]string{"projectId": projectid}
+
+	path := key["path"].([]interface{})
+	var tmp interface{}
+	for _, i := range path {
+		tmp = i
+	}
+	tmp2 := tmp.(map[string]interface{})
+	kind := tmp2["kind"].(string)
+	id := fmt.Sprintln(tmp2["id"])
+
+	extractkey := projectid + kind + id
+
+	var temp map[string]interface{}
+	json.Unmarshal(resp, &temp)
+	mutationRes := temp["mutationResults"].([]interface{})
+	var t interface{}
+	for _, res := range mutationRes {
+		t = res
+	}
+	t2 := t.(map[string]interface{})
+	version := t2["version"]
+
+	entity := map[string]interface{}{
+		"key":        key,
+		"properties": properties,
+	}
+
+	found := map[string][]interface{}{
+		"found": {
+			map[string]interface{}{
+				"version": version,
+				"entity":  entity,
+			},
+		},
+	}
+
+	res, err := json.Marshal(found)
+	if err != nil {
+		log.Fatalln("convert :", err)
+	}
+	return extractkey, res
+}
+
 func (s *Server) cacheHandler() http.Handler {
 	return &cacheHandler{s}
 }
