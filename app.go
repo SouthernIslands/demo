@@ -9,10 +9,10 @@ import (
 )
 
 func main() {
-	fmt.Println("Hello Go")
+	fmt.Println("Cache service initializing ....")
 
-	ttl := flag.Int("ttl", 30, "Time to live (sec)")
-	capacity := flag.Int("capacity", 60, "LRU capacity")
+	ttl := flag.Int("ttl", 10, "Time to live (sec)")
+	capacity := flag.Int("capacity", 40, "LRU capacity")
 	flag.Parse()
 
 	tmp := "inmemory"
@@ -20,7 +20,6 @@ func main() {
 	log.Println("Now cache ttl is :", *ttl)
 	log.Println("Now cache LRU capacity is :", *capacity)
 	c := cache.New(*typ, *ttl, *capacity)
-	//c := cache.New("inmemory")
-	//go tcp.New(c).Listen()
+
 	http.New(c).Listen()
 }

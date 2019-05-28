@@ -82,9 +82,9 @@ func (h *cacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					w.Write(b)
 				}
 			} else if method == "commit" {
-				mutations := req["mutations"].([]interface{})
-				mutation := mutations[0].(map[string]interface{})
-				if mutation["upsert"] == nil || len(mutation) > 1 {
+				mutations := req["mutations"].(map[string]interface{})
+
+				if mutations["upsert"] == nil || len(mutations) > 1 {
 					h.DoUpdate(url, bodyBytes)
 					data, code := h.DoUpdate(url, bodyBytes)
 					w.Write(data)
@@ -177,22 +177,22 @@ func (h *cacheHandler) DoUpdate(url string, body []byte) ([]byte, int) {
 }
 
 func (h *cacheHandler) ConvertTofound(req map[string]interface{}, projectid string, resp []byte) (string, []byte) {
-	mutations := req["mutations"].([]interface{})
-	mutation := mutations[0].(map[string]interface{})
+	mutations := req["mutations"].(map[string]interface{})
+	//mutation := mutations.(map[string]interface{})s
 
-	upsert := mutation["upsert"].(map[string]interface{})
+	upsert := mutations["upsert"].(map[string]interface{})
 	properties := upsert["properties"].(map[string]interface{})
 	key := upsert["key"].(map[string]interface{})
 	key["partitionId"] = map[string]string{"projectId": projectid}
 
-	path := key["path"].([]interface{})
-	var tmp interface{}
-	for _, i := range path {
-		tmp = i
-	}
-	tmp2 := tmp.(map[string]interface{})
-	kind := tmp2["kind"].(string)
-	id := fmt.Sprintln(tmp2["id"])
+	path := key["path"].(map[string]interface{})
+	//var tmp interface{}
+	//for _, i := range path {
+	//	tmp = i
+	//}
+	//tmp2 := tmp.(map[string]interface{})
+	kind := path["kind"].(string)
+	id := fmt.Sprintln(path["id"])
 
 	extractkey := projectid + kind + id
 
