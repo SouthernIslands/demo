@@ -3,10 +3,10 @@ package http
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -23,13 +23,34 @@ func (h *cacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	m := r.Method
+	if m == http.MethodPut {
+		b, _ := ioutil.ReadAll(r.Body)
+		key := paras
+		addr, e := h.ShouldProcess(key)
+		if !e {
+			log.Println("SET: Wrong host, Discrad key :", addr)
+		} else {
+			if len(b) != 0 {
+				e := h.Set(key, b)
+				if e != nil {
+					log.Println(e)
+					w.WriteHeader(http.StatusInternalServerError)
+				}
+				log.Println(addr, " accepts key:", key)
+			}
+		}
+		return
+	}
+
+	//POST
 	projectid := strings.Split(paras, ":")[0]
 	method := strings.Split(paras, ":")[1]
 	token := r.URL.RawQuery[strings.LastIndex(r.URL.RawQuery, "=")+1:]
 	url := baseURL + paras + "?" + r.URL.RawQuery
 	//token := r.Header.Get("Authorization")[0]
-	log.Println(method)
-	log.Println(token)
+	//log.Println(method)
+	//log.Println(token)
 
 	if len(projectid) == 0 || len(method) == 0 || len(token) == 0 {
 		w.WriteHeader(http.StatusBadRequest)
@@ -43,26 +64,35 @@ func (h *cacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	m := r.Method
 	if m == http.MethodPost {
 		var req map[string]interface{}
 		json.Unmarshal(bodyBytes, &req)
-		log.Println("Request :", req)
 
 		if len(req) != 0 {
 			if method == "lookup" {
 				tmpk := req["keys"].(map[string]interface{})
 				tmpp := tmpk["path"].(map[string]interface{})
 				kind := tmpp["kind"].(string)
-				id := fmt.Sprintln(tmpp["id"])
+				idtmp := tmpp["id"].(float64)
+				id := strconv.Itoa(int(idtmp))
 				key := projectid + kind + id
 
-				b, e := h.Get(key)
-				if e != nil {
+				addr, e := h.ShouldProcess(key)
+				if !e {
+					log.Println("Transfer key query to :", addr)
+					data, code := h.DoTransfer(paras+"?"+r.URL.RawQuery, addr, bodyBytes)
+					w.Write(data)
+					w.WriteHeader(code)
+					return
+				}
+
+				b, error := h.Get(key)
+				if error != nil {
 					log.Println(e)
 					w.WriteHeader(http.StatusInternalServerError)
-					w.Write([]byte(e.Error()))
+					w.Write([]byte(error.Error()))
 				}
+
 				w.Header().Set("Content-Type", "application/json")
 				if b == nil {
 					//cache miss
@@ -71,9 +101,6 @@ func (h *cacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					//past the response to client
 					//outdated？
 
-					//map -> json -> encode json to w
-					//json.NewEncoder(w).Encode(data)
-					//byte->byte
 					w.Write(data)
 					if code != http.StatusOK {
 						w.WriteHeader(code)
@@ -99,7 +126,14 @@ func (h *cacheHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				} else {
 					//set to cache
 					key, found := h.ConvertTofound(req, projectid, data)
-					h.Set(key, found)
+
+					addr, e := h.ShouldProcess(key)
+					if !e {
+						log.Println("Transfer key value pair to :", addr)
+						h.DoAssign(key, addr, found)
+					} else {
+						h.Set(key, found)
+					}
 				}
 			} else {
 				h.DoUpdate(url, bodyBytes)
@@ -192,7 +226,8 @@ func (h *cacheHandler) ConvertTofound(req map[string]interface{}, projectid stri
 	//}
 	//tmp2 := tmp.(map[string]interface{})
 	kind := path["kind"].(string)
-	id := fmt.Sprintln(path["id"])
+	idtmp := path["id"].(float64)
+	id := strconv.Itoa(int(idtmp))
 
 	extractkey := projectid + kind + id
 
@@ -225,6 +260,48 @@ func (h *cacheHandler) ConvertTofound(req map[string]interface{}, projectid stri
 		log.Fatalln("convert :", err)
 	}
 	return extractkey, res
+}
+
+func (h *cacheHandler) DoTransfer(url, addr string, cnt []byte) ([]byte, int) {
+
+	resp, err := http.Post("http://"+addr+":14350/cache/"+url,
+		"application/json", bytes.NewBuffer(cnt))
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer resp.Body.Close()
+
+	return bodyBytes, resp.StatusCode
+
+}
+
+func (h *cacheHandler) DoAssign(key, addr string, value []byte) ([]byte, int) {
+	c := &http.Client{}
+	req, err := http.NewRequest(http.MethodPut, "http://"+addr+":14350/cache/"+key,
+		bytes.NewBuffer(value))
+	if err != nil {
+		log.Println(err)
+		log.Println(http.MethodPut, "http://"+addr+":14350/cache/"+key)
+		log.Println(req)
+	}
+
+	resp, err := c.Do(req)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer resp.Body.Close()
+
+	return bodyBytes, resp.StatusCode
 }
 
 func (s *Server) cacheHandler() http.Handler {
